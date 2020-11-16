@@ -1,0 +1,19 @@
+---
+title: "Gulf of Maine Report"
+author: "Adam A. Kemberling"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(raster)
+library(sf)
+library(gmRi)
+library(here)
+library(tidyverse)
+```
+
+#  Gulf of Maine Sea Surface Temperature Outlook
+

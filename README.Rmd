@@ -1,0 +1,17 @@
+---
+title: "README OISST Mainstays"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# About
+
+This repository maintains core workflows for accessing, processing, and mapping OISST data. For many of the global extent netcdf files processing will be done using python and xarray.
+
+The processing and manipulation of tabular data and other files will be done using R and Rmarkdown for consistent reporting (and becauseI am much better with these tools)
+
+## Data Access
+
