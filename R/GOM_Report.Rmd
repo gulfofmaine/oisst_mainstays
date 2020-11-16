@@ -2,18 +2,501 @@
 title: "Gulf of Maine Report"
 author: "Adam A. Kemberling"
 date: "`r Sys.Date()`"
-output: html_document
+output: 
+  html_document:
+    toc: TRUE
+    toc_float:
+        collapsed: FALSE
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
 
+library(lubridate)
 library(raster)
+library(rnaturalearth)
 library(sf)
 library(gmRi)
 library(here)
+library(janitor)
+library(knitr)
+library(patchwork)
 library(tidyverse)
+library(kableExtra)
+library(heatwaveR)
+library(plotly)
+library(ggpmisc)
+
+
+theme_set(theme_bw())
+
 ```
+
+`r gmRi::use_gmri_style_rmd(css = "gmri_rmarkdown.css")`
 
 #  Gulf of Maine Sea Surface Temperature Outlook
 
+## Gulf of Maine Domain
+
+The spatial extent for the "Gulf of Maine" has been adjusted to meet analysis needs and to match the data properties of different projects. For the CPR analyses the Gulf of Maine region was determined as a bounding box with the following lat/lon bounds `lon = c(-70.0,	-66.6)` & `lat = c(42.2, 43.8)`. For any analyses that rely on groundfish survey data the area representing the Gulf of Maine is a union of individual survey strata. The strata that represent the Gulf of Maine region are strata `24 - 40`.
+
+Both of these polygons are meaningful to the data sources they are used with, but this highlights a common issue for maintaining consistent records of temperature and anomalies. What is the source polygon used for any sort of mask, and at what scale are climatologies and anomalies calculated.
+
+
+
+```{r, fig.align='center'}
+
+
+####  Data  ####
+
+# Load polygons for mapping
+new_england <- ne_states("united states of america") %>% st_as_sf(crs = 4326) 
+canada <- ne_states("canada") %>% st_as_sf(crs = 4326)
+
+# File Paths
+# mills_path <- shared.path(os.use = "unix", group = "Mills Lab", folder = NULL)
+# res_path <- shared.path(os.use = "unix", group = "RES Data", folder = NULL)
+mills_path <-here("Mills Lab/")
+res_path <- here("Res Data/")
+
+
+# Stratum Shapefiles
+survey_strata <- read_sf(str_c(res_path, "Shapefiles/BottomTrawlStrata/BTS_Strata.shp"))  %>% 
+  clean_names() %>% 
+  filter(strata >= 01010 ,
+         strata <= 01760,
+         strata != 1310,
+         strata != 1320,
+         strata != 1330,
+         strata != 1350,
+         strata != 1410,
+         strata != 1420,
+         strata != 1490) 
+
+
+# Key to which strata = which regions
+strata_key <- list(
+  "Georges Bank"          = as.character(13:23),
+  "Gulf of Maine"         = as.character(24:40),
+  "Southern New England"  = str_pad(as.character(1:12), width = 2, pad = "0", side = "left"),
+  "Mid-Atlantic Bight"    = as.character(61:76))
+
+
+# Assign Areas
+strata_assigned <- survey_strata %>% 
+  mutate(
+    strata = str_pad(strata, width = 5, pad = "0", side = "left"),
+    area = case_when(
+    str_sub(strata, 3, 4) %in% strata_key$`Georges Bank`         ~ "Georges Bank",
+    str_sub(strata, 3, 4) %in% strata_key$`Gulf of Maine`        ~ "Gulf of Maine",
+    str_sub(strata, 3, 4) %in% strata_key$`Southern New England` ~ "Southern New England",
+    str_sub(strata, 3, 4) %in% strata_key$`Mid-Atlantic Bight`   ~ "Mid-Atlantic Bight",
+    TRUE ~ "Outside Major Study Areas"
+  )) 
+
+
+
+# Focus on Gulf of Maine Zones
+gm  <- strata_assigned %>% filter(area == "Gulf of Maine")
+
+# Re-project
+utm_19      <- "+proj=utm +zone=19 +ellps=WGS84 +datum=WGS84 +units=m +no_defs "
+gm_utm      <- gm %>% st_transform(crs = utm_19)
+canada_utm  <- canada %>% st_transform(crs = utm_19)
+usa_utm     <- new_england %>% st_transform(crs = utm_19)
+
+# Crop bounds
+crop_x <- st_bbox(gm_utm)[c(1,3)] 
+crop_y <- st_bbox(gm_utm)[c(2,4)]
+
+# Adjust bbox (units are meters)
+crop_x <- crop_x + c(-30000, 20000)
+crop_y <- crop_y + c(-20000, 20000)
+
+
+# Map the survey stratum
+survey_p <- ggplot() +
+  geom_sf(data = usa_utm) +
+  geom_sf(data = canada_utm) +
+  geom_sf(data = gm_utm, aes(fill = area), alpha = 0.4, show.legend = F) +
+  coord_sf(xlim = crop_x, ylim = crop_y, expand = T) +
+  labs(title = "Groundfish Survey", subtitle = "Gulf of Maine Region")
+
+
+
+####  Cpr Survey Region
+
+# From: adamkemberling/continuous_plankton_recorder 
+# CPR Extent
+cpr_extent <- tribble(
+  ~"lon",      ~"lat",
+  -70.000000,	42.200000, 
+  -66.600000,	42.200000, 
+  -66.600000,	43.800000, 
+  -70.000000,	43.800000, 
+  -70.000000,	42.200000
+) %>% 
+  as.matrix() %>% 
+  list() %>% 
+  st_polygon()
+
+# as simple feature collection
+gm_cpr <- st_sf(area = "CPR Gulf of Maine", st_sfc(cpr_extent), crs = 4326)
+cpr_utm <- st_transform(gm_cpr, crs = utm_19)
+
+
+# Plot with the rest
+cpr_p <- ggplot() +
+  geom_sf(data = usa_utm) +
+  geom_sf(data = canada_utm) +
+  geom_sf(data = cpr_utm, aes(fill = area), alpha = 0.4, show.legend = F) +
+  coord_sf(xlim = crop_x, ylim = crop_y, expand = T) +
+  labs(title = "CPR Survey", subtitle = "Gulf of Maine Region")
+
+
+
+
+
+####  Ecological Production units  ####
+epu_sf <- read_sf(str_c(res_path, "Shapefiles/EPU/EPU_extended.shp"), crs = 4326)
+epu_utm <- st_transform(epu_sf, crs = utm_19)
+epu_utm <- filter(epu_utm, EPU == "GOM")
+
+epu_p <- ggplot() +
+  geom_sf(data = usa_utm) +
+  geom_sf(data = canada_utm) +
+  geom_sf(data = epu_utm, aes(fill = EPU), alpha = 0.4, show.legend = F) +
+  coord_sf(xlim = crop_x, ylim = crop_y, expand = T) +
+  labs(title = "Ecological Production Units", subtitle = "Gulf of Maine Region")
+
+
+
+####  Physio Regions  ####
+nelme_sf <- read_sf(str_c(res_path, "Shapefiles/NELME_regions/GoM_sf.shp"), crs = 4326)
+nelme_utm <- st_transform(nelme_sf, crs = utm_19)
+
+nelme_p <- ggplot() +
+  geom_sf(data = usa_utm) +
+  geom_sf(data = canada_utm) +
+  geom_sf(data = nelme_utm, aes(fill = "GOM"), alpha = 0.4, show.legend = F) +
+  coord_sf(xlim = crop_x, ylim = crop_y, expand = T) +
+  labs(title = "NELME", subtitle = "Gulf of Maine Region")
+
+# patchwork
+(survey_p | cpr_p) / (epu_p | nelme_p) & theme(axis.text = element_text(size = 8))
+
+```
+
+# OISST on Box
+
+For many of our most-used areas climatologies and anomalies have been processed using a handful of jupyter notebook workflows to take advantage of {xarray}. The following sections will highlight what those workflows are, what they detail, and how they can be updated using the Gulf of Maine as an example.
+
+The root folder for the following OISST products is `~/Box/NSF OKN Demo Data/oisst`.
+
+##  Masked Timeseries
+
+A masked timeseries is the most basic building block for any of these areas. For any desired area (represented by a spatial polygon) a timeseries table of observed sea surface temperature is returned that contains the mean sea surface temperature over that area at each time step. Rather than repeat this process again for the climatology table and the anomalies these three values and a few additional fields are stored in the same tables.
+
+Pre-processed tables have been placed on box as part of the NSF C-ACCEL project under the folder: `~/Box/NSF OKN Demo Data/oisst/likelihood_timeseries`
+
+The naming convention in the folder is: `likelihood_timeseries/nmfs_trawl_regions/OISST_v2_anom_` + **region_name** + `_likelihood_ts.csv` 
+
+```{r}
+#gom_path <- "~/Box/NSF OKN Demo Data/oisst/likelihood_timeseries/nmfs_trawl_regions/OISSTv2_anom_gulf_of_maine_likelihood_ts.csv"
+gom_path <- "NSF OKN Demo Data/oisst/likelihood_timeseries/nmfs_trawl_regions/OISSTv2_anom_gulf_of_maine_likelihood_ts.csv"
+gom_ts <- read_csv(gom_path)
+
+head(gom_ts) %>% kable() %>% kable_styling()
+```
+
+
+Climatologies are currently set up to calculate daily averages on a modified julian day, such that every March 1st and all days after fall on the same day, regardless of whether it is a leap year or not. In these tables `sst` is the mean temperature observed for that date averaged across all cells within the area. `sst_clim` & `clim_sd` are the climate means and standard deviations for a 1982-2011 climatology. `sst_anom` is the daily observed minus the climate mean, and `log_lik` is the log likelihood of getting that value given a normal distribution with mean of `sst_clim` and sd of `clim_sd`.
+
+
+### Marine Heatwaves {.tabset .tabset-pills}
+
+The [{heatwaveR}](https://robwschlegel.github.io/heatwaveR/) package provides a relatively quick way of working with tabular data to calculate a seasonal climate mean, as well as heatwaves and coldwaves at a desired threshold. These functions can be used to get the climatology using the standard day of year if desired, and track the number and length of heatwave events. Heatwave events follow the definition of [Hobday et al. 2016](http://www.marineheatwaves.org/all-about-mhws.html)
+
+The heatwave history for the Gulf of Maine trawl region (~from the NELME regions shapefile~) is as follows:
+
+```{r}
+# Wrapper function to do heatwaves and coldwaves simultaneously at 90%
+pull_events <- function(temperature_timeseries) {
+    
+    # Pull the two column dataframe for mhw estimation
+    test_ts <- data.frame(t = temperature_timeseries$time, 
+                          temp = temperature_timeseries$sst)
+    
+    # Detect the events in a time series
+    ts  <- ts2clm(data = test_ts, climatologyPeriod = c("1982-01-01", "2011-12-31"))
+    
+    #heatwaves
+    mhw <- detect_event(ts)                         
+    
+    # prep heatwave data
+    mhw_out <- mhw$climatology %>% 
+        mutate(sst_anom = temp - seas) %>% 
+        select(time = t,
+               sst = temp,
+               seas,
+               sst_anom,
+               mhw_thresh = thresh,
+               mhw_event = event,
+               mhw_event_no = event_no)
+
+
+    # 2. Detect cold spells
+    ts <- ts2clm(data = test_ts, 
+                 climatologyPeriod = c("1982-01-01", "2011-12-31"), 
+                 pctile = 10)
+    mcs <- detect_event(ts, coldSpells = TRUE) #coldSpells = TRUE flips boolean to < thresh
+    
+    # prep cold spell data
+    mcs_out <- mcs$climatology %>%
+        select(time = t,
+               mcs_thresh = thresh,
+               mcs_event = event,
+               mcs_event_no = event_no)
+    
+
+    # join heatwaves to coldwaves
+    hot_and_cold <- left_join(mhw_out, mcs_out, by = "time")
+    
+    
+    
+    # 3. Data formatting for plotting, 
+    # adds columns to plot hw and cs seperately
+    events_out <- hot_and_cold %>% 
+        mutate(status = ifelse(mhw_event == TRUE, "Marine Heatwave Event", "Sea Surface Temperature"),
+               status = ifelse(mcs_event == TRUE, "Marine Cold Spell Event", status),
+               hwe = ifelse(mhw_event == TRUE, sst, NA),
+               cse = ifelse(mcs_event == TRUE, sst, NA),
+               nonevent = ifelse(mhw_event == FALSE & mcs_event == FALSE, sst, NA)) 
+    
+    # Close the gaps between a mhw event and sst (might not need if full line for temp exists)
+    events_out <- events_out %>% 
+        mutate(hwe = ifelse(is.na(hwe) & is.na(lag(hwe)) == FALSE, sst, hwe),
+               cse = ifelse(is.na(cse) & is.na(lag(cse)) == FALSE, sst, cse))
+    
+    
+    return(events_out)
+}
+
+
+
+# Use function
+#
+gom_heatwaves <- pull_events(gom_ts)
+
+```
+
+
+Heatwave timelines can be interactively plotted using {ggplot2} for static plots or {plotly} for interactive content.
+
+#### Interactive Plot
+
+```{r}
+# Helper function
+plotly_mhw_plots <- function(data){
+    
+    # How to get rgb() from colors
+    plot_cols <- list(
+        "gray20"    = col2rgb(col = "gray20"),
+        "gray40"    = col2rgb(col = "gray40"),
+        "royalblue" = col2rgb(col = "royalblue"),
+        "darkred"   = col2rgb(col = "darkred"),
+        "royalblue" = col2rgb(col = "royalblue"))
+    
+    
+    # Building the plot
+    fig <- plot_ly(data, x = ~time) 
+    
+    # Sea Surface Temperature
+    fig <- fig %>% add_trace(y = ~sst, 
+                             name = 'Sea Surface Temperature',
+                             mode = 'lines', 
+                             type = "scatter",
+                             line = list(color = "rgb(65, 105, 225)", 
+                                         width = 2)) 
+    # Heatwave Threshold
+    fig <- fig %>% add_trace(y = ~mhw_thresh, 
+                             name = 'MHW Threshold ', 
+                             mode = 'lines', 
+                             type = "scatter",
+                             line = list(color = "rgb(51, 51, 51)", 
+                                         width = 1, 
+                                         dash = 'dot')) 
+    # Seasonal Climatology
+    fig <- fig %>% add_trace(y = ~seas, 
+                             name = 'Seasonal Climatology ', 
+                             mode = 'lines', 
+                             type = "scatter",
+                             line = list(color = "rgb(102, 102, 102)", 
+                                         width = 3, 
+                                         dash = 'dash')) 
+    # Marine Cold Spell Threshold
+    fig <- fig %>% add_trace(y = ~mcs_thresh, 
+                             name = 'MCS Threshold ', 
+                             mode = 'lines', 
+                             type = "scatter",
+                             line = list(color = "rgb(51, 51, 51)", 
+                                         width = 1, 
+                                         dash = 'dot')) 
+    # Heatwave Event
+    fig <- fig %>% add_trace(y = ~hwe, 
+                             name = 'Marine Heatwave Event ', 
+                             mode = 'lines', 
+                             type = "scatter",
+                             line = list(color = "rgb(139, 0, 0)", 
+                                         width = 2)) 
+   
+    # Cold Spell Event
+    fig <- fig %>% add_trace(y = ~cse, 
+                             name = 'Marine Cold Spell Event ', 
+                             mode = 'lines', 
+                             type = "scatter",
+                             line = list(color = "rgb(65, 105, 225)", 
+                                         width = 2)) 
+    
+    
+    fig <- fig %>% layout(xaxis = list(title = ""),
+                          yaxis = list (title = "Temperature (degrees C)"))
+    return(fig)
+}
+
+
+
+# Plot the last year
+last_year <- Sys.Date() - 365
+gom_heatwaves %>% 
+  filter(time >= last_year) %>% 
+  plotly_mhw_plots()
+```
+
+#### Static Plot
+
+```{r}
+
+color_vals <- c(
+  "Sea Surface Temperature" = "royalblue",
+  "Heatwave Event"          = "darkred",
+  "Cold Spell Event"        = "lightblue",
+  "MHW Threshold"           = "gray30",
+  "MCS Threshold"           = "gray30",
+  "Seasonal Climatology"    = "gray30")
+
+
+ylab <- expression("Sea Surface Temperature"~degree~C)
+
+gom_heatwaves %>% 
+  filter(time >= last_year) %>% 
+  ggplot(aes(x = time)) +
+    geom_segment(aes(x = time, xend = time, y = seas, yend = sst), color = "royalblue", alpha = 0.25) +
+    geom_segment(aes(x = time, xend = time, y = mhw_thresh, yend = hwe), color = "darkred", alpha = 0.25) +
+    geom_line(aes(y = sst, color = "Sea Surface Temperature")) +
+    geom_line(aes(y = hwe, color = "Heatwave Event")) +
+    geom_line(aes(y = cse, color = "Cold Spell Event")) +
+    geom_line(aes(y = mhw_thresh, color = "MHW Threshold"), lty = 2, size = .5) +
+    geom_line(aes(y = mcs_thresh, color = "MCS Threshold"), lty = 2, size = .5) +
+    geom_line(aes(y = seas, color = "Seasonal Climatology"), size = .5) +
+    scale_color_manual(values = color_vals) +
+    theme(legend.title = element_blank()) +
+    labs(x = "", y = ylab)
+```
+
+
+#### Warming Trends {.tabset .tabset-pills}
+
+Things to add:   
+ * Global Trends (grey)   
+ * Regional Trend (blue)
+ * Coefficients on Annual scale
+
+##### Annual
+
+```{r}
+annual_summary <- gom_ts %>% 
+  mutate(year = year(time)) %>% 
+  group_by(year) %>% 
+  summarise(sst = mean(sst, na.rm = T),
+            sst_anom = mean(sst_anom, na.rm = T)) 
+
+
+
+annual_summary %>% 
+  ggplot(aes(year, sst_anom)) +
+  geom_line(group = 1) +
+  geom_point() +
+  geom_smooth(method = "lm", 
+              aes(color = "Gulf of Maine Trend"),
+              formula = y ~ x, se = F, linetype = 2) +
+  stat_poly_eq(formula = y ~ x,
+               aes(color = "Gulf of Maine Trend",
+                   label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+               parse = T) +
+  scale_color_manual(values = c("Gulf of Maine Trend" = "royalblue")) +
+  labs(x = "", y = "Sea Surface Temperature Anomaly") +
+  theme(legend.title = element_blank(),
+        legend.position = c(0.85, 0.2),
+        legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(fill = "transparent", color = "transparent"))
+```
+
+##### Seasonal
+
+```{r}
+seasonal_summary <- gom_ts %>% 
+  mutate(year = year(time),
+         season = factor(quarter(time, fiscal_start = 1)),
+         season = fct_recode(season, c("Q1" = "1"), c("Q2" = "2"), c("Q3" = "3"), c("Q4" = "4"))) %>% 
+  group_by(year, season) %>% 
+  summarise(sst = mean(sst, na.rm = T),
+            sst_anom = mean(sst_anom, na.rm = T)) 
+
+
+
+seasonal_summary %>% 
+  ggplot(aes(year, sst_anom)) +
+  geom_line(group = 1) +
+  geom_point() +
+  geom_smooth(method = "lm", 
+              aes(color = "Gulf of Maine Trend"),
+              formula = y ~ x, se = F, linetype = 2) +
+  stat_poly_eq(formula = y ~ x,
+               aes(color = "Gulf of Maine Trend",
+                   label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+               parse = T) +
+  scale_color_manual(values = c("Gulf of Maine Trend" = "royalblue")) +
+  labs(x = "", y = "Sea Surface Temperature Anomaly") +
+  theme(legend.title = element_blank(),
+        legend.position = c(0.875, 0.05),
+        legend.background = element_rect(fill = "transparent"),
+        legend.key = element_rect(fill = "transparent", color = "transparent")) +
+  facet_wrap(~season)
+```
+
+#### Heatwave Events
+
+```{r}
+grid_data <- gom_heatwaves %>% 
+  mutate(year = year(time),
+         yday = yday(time)) 
+
+grid_data %>% 
+  ggplot(aes(x = yday, y = year)) +
+  geom_tile(aes(fill = sst_anom)) +
+  geom_point(data = filter(grid_data, mhw_event == TRUE),
+             aes(x = yday, y = year), size = .25)  +
+  scale_fill_gradient2(low = "royalblue",
+                       mid = "white",
+                       high = "red") +
+  labs(x = "Calendar Date", y = "") +
+  theme_classic()
+```
+
+
+
+`r insert_gmri_footer()`

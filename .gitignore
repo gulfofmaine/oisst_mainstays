@@ -2,3 +2,29 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# Rstudio Password Info
+secret.env
+
+# Personal Docker Settings
+docker-compose.override.yaml
+
+# Data
+*.nc
+*.ipynb_checkpoints*
+*.csv
+
+# Data folders
+annual_anomalies/*
+annual_observations/*
+daily_climatologies/*
+regional_timeseries/*
+docs/*
+
+# notbook cache data
+notebooks/.cache*
+notebooks/.local*
+notebooks/.jupyter*
+notebooks/.config*
+notebooks/.ipython*
+
