@@ -45,3 +45,4 @@ The notebooks in this repo form the core workflow for processing climatology pro
 
 .Rmd files are then used to produce consistent reports for the processed sea surface temperature products. 
 
+As reports are completed the will be made available [here using github pages](https://github.com/adamkemberling/oisst_mainstays/blob/master/index.md)
