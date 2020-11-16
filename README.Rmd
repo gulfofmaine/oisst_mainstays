@@ -1,11 +1,14 @@
 ---
-title: "README OISST Mainstays"
+title: "OISST Mainstays"
 output: github_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(gmRi)
 ```
+
+`r use_gmri_style_rmd(css_file = "gmri_rmarkdown.css")`
 
 # About
 
@@ -13,5 +16,29 @@ This repository maintains core workflows for accessing, processing, and mapping 
 
 The processing and manipulation of tabular data and other files will be done using R and Rmarkdown for consistent reporting (and becauseI am much better with these tools)
 
+## Working with Docker and Local Paths
+
+### `make up` & `make down`
+
+These commands provide a quick way to spin up notebooks and rstudio server.
+
+Enter `make up` into the terminal for a quick start.
+Watch for the notebook service to give you a URL with a login token. Toss that link into the browser to start the notebook.
+
+Once the environment is running Rstudio server can be found at `localhost:8787` which can be entered into any browser.
+
+
+
 ## Data Access
+
+[OISSTv2](https://www.ncdc.noaa.gov/oisst/optimum-interpolation-sea-surface-temperature-oisst-v21) data products used for this project have been accessed directly from the [NOAA Physical Sciences Laboratory](https://psl.noaa.gov/data/gridded/data.noaa.oisst.v2.highres.html). The focus of theese workflows is on sea surface temperature products, with gridded datasets containing daily mean sea surface temperature downloaded individually prior to any re-working or processing steps.
+
+
+## Notebooks
+
+The notebooks in this repo form the core workflow for processing climatology products from the global OISSTv2 products. The notebooks are numbered to suggest a step-wise workflow that will take the original files containing sea surface temperature observations and step the user through calculating a climatology, and for getting timeseries for particular regions of interest. Ongoing development is being done now to create an automatic updating procedure.
+
+## Rstudio Products
+
+.Rmd files are then used to produce consistent reports for the processed sea surface temperature products. 
 
