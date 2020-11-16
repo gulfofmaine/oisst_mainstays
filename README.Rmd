@@ -27,6 +27,9 @@ Watch for the notebook service to give you a URL with a login token. Toss that l
 
 Once the environment is running Rstudio server can be found at `localhost:8787` which can be entered into any browser.
 
+### docker-compose.override.yaml
+
+For colleagues wishing to access shared resources a `docker-compose.override.yaml` file will need to be placed in the main directory of this repository to link shared paths to shared resources.
 
 
 ## Data Access
